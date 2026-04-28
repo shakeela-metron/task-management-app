@@ -1,0 +1,66 @@
+services:
+  mongodb:
+    image: mongodb/mongodb-community-server:latest
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - db_data:/data/db
+    networks:
+      - task-network
+
+  user-service:
+    build: ./user-service
+    container_name: user-service
+    ports:
+      - "3001:3001"
+    depends_on:
+      - mongodb
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017/user-service
+    networks:
+      - task-network
+  
+  task-service:
+    build: ./task-service
+    container_name: task-service
+    ports:
+      - "3002:3002"
+    depends_on:
+      - mongodb
+      - rabbitmq
+    environment:
+      - RABBITMQ_URL=amqp://rabbitmq:5672
+      - MONGO_URI=mongodb://mongodb:27017/task-service
+    networks:
+      - task-network
+  
+  notification-service:
+    build: ./notification-service
+    container_name: notification-service
+    ports:
+      - "3003:3003"
+    depends_on:
+      - mongodb
+      - rabbitmq
+    environment:
+      - RABBITMQ_URL=amqp://rabbitmq:5672
+      - MONGO_URI=mongodb://mongodb:27017/notification-service
+    networks:
+      - task-network
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - task-network
+
+networks:
+  task-network:
+    driver: bridge
+
+volumes:
+  db_data:
