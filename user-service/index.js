@@ -117,12 +117,12 @@ app.delete('/users/:id', (req, res) => {
 
 
 app.use((req, res, next) => {
-    res.status(404).json({ error: 'Endpoint not found' });
+    res.status(404).json({ error: 'Endpoint not found in user-service' });
 });
 
 app.use((err, req, res, next) => {
     console.error('Unexpected error:', err);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Internal Server Error in user-service' });
 });
 
 app.listen(port, () => {
