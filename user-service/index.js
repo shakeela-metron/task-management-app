@@ -1,5 +1,6 @@
 const express = require('express')
 const mongoose = require('mongoose')
+const amqp = require('amqplib')
 const bodyParser = require('body-parser')
 
 
@@ -19,6 +20,39 @@ const userSchema = new mongoose.Schema({
     password: String
 });
 const User = mongoose.model('User', userSchema);
+
+async function connectRabbitMQWithRetry() {
+    const rabbitUrl = process.env.RABBITMQ_URL || 'amqp://rabbitmq:5672';
+    try {
+        const connection = await amqp.connect(rabbitUrl);
+        const channel = await connection.createChannel();
+        await channel.assertQueue('user_registered');
+        console.log('User Service is connected to RabbitMQ');
+        console.log('User-Service waiting for registration events...');
+
+        channel.consume('user_registered', async (msg) => {
+            if (msg !== null) {
+                const { userId, name, email, password } = JSON.parse(msg.content.toString());
+                await User.create({ _id: userId, name, email, password });
+
+                console.log(`User registered event received and user created in DB: ${name} (${email})`);
+                channel.ack(msg);
+            }
+        });
+
+        connection.on('close', () => {
+            console.error('RabbitMQ connection closed. Retrying...');
+            setTimeout(connectRabbitMQWithRetry, 5000);
+        });
+
+        return channel;
+    } catch (error) {
+        console.error('Error connecting to RabbitMQ:', error.message);
+        setTimeout(connectRabbitMQWithRetry, 5000);
+    }
+}
+
+connectRabbitMQWithRetry();
 
 app.post('/users', (req, res) => {
     console.log('Received user creation request:', req.body);

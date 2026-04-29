@@ -16,6 +16,7 @@ services:
       - "3001:3001"
     depends_on:
       - mongodb
+      - rabbitmq
     environment:
       - MONGO_URI=mongodb://mongodb:27017/user-service
     networks:
@@ -53,8 +54,12 @@ services:
     build: ./auth-service
     container_name: auth-service
     environment:
+      - RABBITMQ_URL=amqp://rabbitmq:5672
       - JWT_SECRET=your_jwt_secret_key
       - MONGO_URI=mongodb://mongodb:27017/auth-service
+    depends_on:
+      - mongodb
+      - rabbitmq
     networks:
       - task-network
   

@@ -1,6 +1,7 @@
 const express = require('express')
 const mongoose = require('mongoose')
 const bcrypt = require('bcryptjs')
+const amqp = require('amqplib')
 const bodyParser = require('body-parser')
 const jsonwebtoken = require('jsonwebtoken')
 const { createProxyMiddleware } = require('http-proxy-middleware')
@@ -12,15 +13,33 @@ const JWT_SECRET = 'your_jwt_secret_key'; // In production, use a secure method 
 const MONGO_URL = 'mongodb://mongodb:27017/auth-service'; // MongoDB connection string for auth-service
 app.use(bodyParser.json()); // Middleware to parse JSON bodies
 
+let rabbitmqChannel;
+async function connectRabbitMQWithRetry(retryCount = 5, retryDelay = 3000) {
+    while (retryCount > 0) {
+        try {
+            const connection = await amqp.connect('amqp://rabbitmq:5672');
+            rabbitmqChannel = await connection.createChannel();
+            await rabbitmqChannel.assertQueue('user_registered');
+            console.log('RabbitMQ connection established');
+            return;
+        } catch (error) {
+            console.error('Error connecting to RabbitMQ:', error.message);
+            retryCount--;
+            console.log(`Retrying in ${retryDelay} ms... (${retryCount} attempts left)`);
+            await new Promise(resolve => setTimeout(resolve, retryDelay));
+        }
+    }
+}
+
 // Connect to MongoDB
 mongoose.connect(MONGO_URL).then(() => {
     console.log('Auth service connected to MongoDB');
 }).catch(err => console.error('Could not connect to MongoDB', err));
 
 const userSchema = new mongoose.Schema({
-    name: {type: String, required: true },
-    email: {type: String, required: true, unique: true },
-    password: {type: String, required: true }
+    name: { type: String, required: true },
+    email: { type: String, required: true, unique: true },
+    password: { type: String, required: true }
 });
 
 const User = mongoose.model('User', userSchema); // User model for authentication
@@ -39,13 +58,17 @@ app.post('/auth/register', (req, res) => {
     if (missingFields.length > 0) {
         return res.status(400).json({ error: `Missing fields: ${missingFields.join(', ')}` });
     }
-    
+
     // Hash the password using bcrypt before saving it to the database. This is a common practice to enhance security by ensuring that plaintext passwords are not stored in the database. The bcrypt.hash function takes the plaintext password and a salt rounds parameter (in this case, 10) and returns a promise that resolves to the hashed password. Once the password is hashed, we can save the user to the database with the hashed password.
     // Note: In a real application, you would likely want to implement additional security measures such as password strength validation and rate limiting for registration attempts to prevent abuse. This is a simplified example for demonstration purposes.
     bcrypt.hash(password, 10).then(hashedPassword => {
         // Save user to database (simplified for this example)
         const user = new User({ name, email, password: hashedPassword });
         user.save().then(() => {
+            // Publish user registered event to RabbitMQ
+            if (rabbitmqChannel) {
+                rabbitmqChannel.sendToQueue('user_registered', Buffer.from(JSON.stringify({ userId: user._id, email: user.email, name: user.name, password: hashedPassword })));
+            }
             res.status(201).json({ message: 'User registered successfully' });
         }).catch(err => {
             console.error('Error saving user:', err);
@@ -147,4 +170,5 @@ app.use((err, req, res, next) => {
 
 app.listen(port, () => {
     console.log(`Example app listening on port ${port}`)
+    connectRabbitMQWithRetry();
 })
