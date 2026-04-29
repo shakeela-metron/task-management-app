@@ -132,6 +132,16 @@ app.delete('/tasks/:id', (req, res) => {
     });
 });
 
+app.use((req, res, next) => {
+    res.status(404).json({ error: 'Endpoint not found in task-service' });
+});
+
+app.use((err, req, res, next) => {
+    console.error('Unexpected error:', err);
+    res.status(500).json({ error: 'Internal Server Error in task-service' });
+});
+
+
 
 app.listen(port, () => {
     console.log(`Task service running on port ${port}`);
